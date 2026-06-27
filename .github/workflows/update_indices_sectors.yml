@@ -38,7 +38,9 @@ jobs:
           pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
 
       - name: Run scraping script
-        run: python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
+        run: |
+          find b2c -name "*.py"
+          python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
 
       - name: Check if JSON changed
         id: check-changed
