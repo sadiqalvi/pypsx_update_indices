@@ -32,7 +32,9 @@ jobs:
           cache: pip
 
       - name: Install pypsx library
-        run: pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
+        run: |
+          pip install Cython wheel setuptools
+          pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
 
       - name: Run scraping script
         run: python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
