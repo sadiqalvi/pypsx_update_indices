@@ -1,0 +1,106 @@
+name: Update Indices / Sectors Reference Data
+
+# Runs once a month (1st of each month, 6 PM PKT = 13:00 UTC).
+# Hosted in a separate repo/account — checks out ahmerhkhan/pypsx_papertrading
+# using a PAT, scrapes PSX data, commits the JSON, and deploys to Oracle VM.
+on:
+  schedule:
+    - cron: '0 13 1 * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    name: Scrape PSX indices & sectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.check-changed.outputs.changed }}
+
+    steps:
+      - name: Checkout pypsx_papertrading (main)
+        uses: actions/checkout@v4
+        with:
+          repository: ahmerhkhan/pypsx_papertrading
+          token: ${{ secrets.PYPSX_REPO_TOKEN }}
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install pypsx library
+        run: pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
+
+      - name: Run scraping script
+        run: python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
+
+      - name: Check if JSON changed
+        id: check-changed
+        run: |
+          if git diff --quiet b2c/pytrader-backend/data/indices_sectors_constituents.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes — skipping commit and deploy"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected — will commit and deploy"
+          fi
+
+      - name: Commit and push updated JSON to main
+        if: steps.check-changed.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add b2c/pytrader-backend/data/indices_sectors_constituents.json
+          git commit -m "chore: update PSX indices/sectors reference data [skip ci]"
+          git push origin main
+
+  deploy-to-vm:
+    name: Push subtree to algo-trading-platform & pull on VM
+    runs-on: ubuntu-latest
+    needs: scrape
+    if: needs.scrape.outputs.changed == 'true'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout pypsx_papertrading (main, full history)
+        uses: actions/checkout@v4
+        with:
+          repository: ahmerhkhan/pypsx_papertrading
+          token: ${{ secrets.PYPSX_REPO_TOKEN }}
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up SSH key for Oracle VM
+        env:
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$ORACLE_SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H 193.123.76.154 >> ~/.ssh/known_hosts
+
+      - name: Subtree split b2c/ and push to algo-trading-platform
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          HASH=$(git subtree split --prefix=b2c HEAD)
+          echo "Subtree commit: $HASH"
+          git push "https://x-access-token:${{ secrets.PYPSX_REPO_TOKEN }}@github.com/ahmerhkhan/pypsx_papertrading.git" \
+            "${HASH}:refs/heads/algo-trading-platform" --force
+
+      - name: Pull updated branch on Oracle VM
+        run: |
+          ssh -i ~/.ssh/oracle_key \
+              -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=30 \
+              ubuntu@193.123.76.154 "
+            set -e
+            cd ~/pypsx_papertrading
+            git fetch origin algo-trading-platform
+            git reset --hard origin/algo-trading-platform
+            sudo docker compose -f docker-compose.prod.yml restart backend
+            echo 'VM updated and backend restarted'
+          "
