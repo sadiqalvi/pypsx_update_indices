@@ -37,10 +37,14 @@ jobs:
           sed -i 's/mailto:support@pypsx.com/https:\/\/pypsx.com\/support/g' b2c/libraries/pypsx-library-main/pyproject.toml
           pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
 
-      - name: Run scraping script
+      - name: Fetch script from algo-trading-platform
         run: |
-          find b2c -name "*.py"
-          python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
+          git fetch origin algo-trading-platform
+          # The script is in the root of the split branch, so we copy it to the b2c folder on main
+          git show origin/algo-trading-platform:pytrader-backend/scripts/scrape_indices_sectors.py > b2c/pytrader-backend/scripts/scrape_indices_sectors.py
+
+      - name: Run scraping script
+        run: python b2c/pytrader-backend/scripts/scrape_indices_sectors.py
 
       - name: Check if JSON changed
         id: check-changed
