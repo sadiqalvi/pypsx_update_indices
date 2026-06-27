@@ -34,6 +34,7 @@ jobs:
       - name: Install pypsx library
         run: |
           pip install Cython wheel setuptools
+          sed -i 's/mailto:support@pypsx.com/https:\/\/pypsx.com\/support/g' b2c/libraries/pypsx-library-main/pyproject.toml
           pip install "b2c/libraries/pypsx-library-main/" --no-build-isolation
 
       - name: Run scraping script
